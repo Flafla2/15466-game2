@@ -264,6 +264,13 @@ void Scene::load(std::string const &filename,
 	std::vector< LightEntry > lights;
 	read_chunk(file, "lmp0", &lights);
 
+	struct EmptyEntry {
+		uint32_t transform;
+	};
+	static_assert(sizeof(EmptyEntry) == 4, "EmptyEntry is packed.");
+	std::vector< EmptyEntry > empties;
+	read_chunk(file, "emp0", &empties);
+
 	if (file.peek() != EOF) {
 		std::cerr << "WARNING: trailing data in scene file '" << filename << "'" << std::endl;
 	}
@@ -310,6 +317,16 @@ void Scene::load(std::string const &filename,
 			on_object(*this, hierarchy_transforms[m.transform], name);
 		}
 
+	}
+
+	for (auto const &e : empties) {
+		if (e.transform >= hierarchy_transforms.size()) {
+			throw std::runtime_error("scene file '" + filename + "' contains empty entry with invalid transform index (" + std::to_string(m.transform) + ")");
+		}
+
+		if (on_object) {
+			on_object(*this, hierarchy_transforms[e.transform], nullptr);
+		}
 	}
 
 	for (auto const &c : cameras) {

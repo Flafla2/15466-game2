@@ -48,6 +48,7 @@ xfh_data = b""
 mesh_data = b""
 camera_data = b""
 lamp_data = b""
+empty_data = b""
 
 #write_string will add a string to the strings section and return a packed (begin,end) reference:
 def write_string(string):
@@ -91,6 +92,13 @@ def write_mesh(obj):
 	mesh_data += write_xfh(obj) #hierarchy reference
 	mesh_data += write_string(obj.data.name) #mesh name
 	print("mesh: " + obj.name)
+
+#write_empty adds an empty (heirarchy only) object to the empties section
+def write_empty(obj):
+	global empty_data
+	assert(obj.type == 'EMPTY')
+	empty_data += write_xfh(obj) #hierarchy reference
+	print("empty: " + obj.name)
 
 #write_camera will add an object to the camera section:
 def write_camera(obj):
@@ -156,6 +164,8 @@ for obj in bpy.data.objects:
 		write_camera(obj)
 	elif obj.type == 'LAMP':
 		write_lamp(obj)
+	elif obj.type == 'EMPTY':
+		write_empty(obj)
 	else:
 		print('Skipping ' + obj.type)
 
@@ -171,6 +181,7 @@ write_chunk(b'xfh0', xfh_data)
 write_chunk(b'msh0', mesh_data)
 write_chunk(b'cam0', camera_data)
 write_chunk(b'lmp0', lamp_data)
+write_chunk(b'emp0', empty_data)
 
 print("Wrote " + str(blob.tell()) + " bytes to '" + outfile + "'")
 blob.close()

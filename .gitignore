@@ -1,5 +1,8 @@
 objs/
 *.blend[0-9]
+*.scene
+*.pnc
+*.p
 dist/client
 dist/client.exe
 dist/server
