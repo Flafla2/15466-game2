@@ -48,10 +48,15 @@ Load< GLuint > ball_vao(LoadTagDefault, [](){
 	return new GLuint(ball_meshes->make_vao_for_program(vertex_color_program->program));
 });
 
-Scene::Transform *tank_transform = nullptr;
-Scene::Transform *tank_cannon_transform = nullptr;
-Scene::Transform *tank_top_transform = nullptr;
-Scene::Transform *tank_bot_transform = nullptr;
+struct TankTransforms {
+	Scene::Transform *tank_transform = nullptr;
+	Scene::Transform *tank_cannon_transform = nullptr;
+	Scene::Transform *tank_top_transform = nullptr;
+	Scene::Transform *tank_bot_transform = nullptr;
+};
+
+TankTransforms host_transforms;
+TankTransforms other_transforms;
 
 Scene::Camera *camera = nullptr;
 
@@ -111,10 +116,23 @@ MLoad< Scene > tank_scene(LoadTagDefault, [](){
 	std::map<std::string, Scene::Transform **> map;
 
 	typedef std::pair<std::string, Scene::Transform **> pp;
-	map.insert(pp("tank",   &tank_transform));
-	map.insert(pp("top",    &tank_top_transform));
-	map.insert(pp("bottom", &tank_bot_transform));
-	map.insert(pp("cannon", &tank_cannon_transform));
+	map.insert(pp("tank",   &host_transforms.tank_transform));
+	map.insert(pp("top",    &host_transforms.tank_top_transform));
+	map.insert(pp("bottom", &host_transforms.tank_bot_transform));
+	map.insert(pp("cannon", &host_transforms.tank_cannon_transform));
+
+	return do_load_scene("tank.scene", map, nullptr, &*tank_meshes, &*tank_vao);
+});
+
+//TODO: Implement Object::duplicate() (lol)
+MLoad< Scene > other_tank_scene(LoadTagDefault, [](){
+	std::map<std::string, Scene::Transform **> map;
+
+	typedef std::pair<std::string, Scene::Transform **> pp;
+	map.insert(pp("tank",   &other_transforms.tank_transform));
+	map.insert(pp("top",    &other_transforms.tank_top_transform));
+	map.insert(pp("bottom", &other_transforms.tank_bot_transform));
+	map.insert(pp("cannon", &other_transforms.tank_cannon_transform));
 
 	return do_load_scene("tank.scene", map, nullptr, &*tank_meshes, &*tank_vao);
 });
@@ -128,6 +146,7 @@ GameMode::GameMode(Client &client_) : client(client_) {
 	// Compile scene from loaded asset files
 	full_scene = new Scene;
 	full_scene->append_scene(std::move(*tank_scene));
+	full_scene->append_scene(std::move(*other_tank_scene));
 	full_scene->append_scene(std::move(*env_scene));
 
 	auto camera_transform = new Scene::Transform;
@@ -153,10 +172,10 @@ bool GameMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 		const float twopi = 2.0f * glm::pi<float>();
 		const float pitwo = 0.5f * glm::pi<float>();
 
-		state.player_look.x += -(float)evt.motion.xrel / window_size.x * twopi;
-		state.player_look.y += (float)evt.motion.yrel / window_size.x * twopi;
-		state.player_look.x = fmod(state.player_look.x, twopi);
-		state.player_look.y = glm::clamp(fmod(state.player_look.y, twopi), -pitwo + .05f, pitwo - .05f);
+		state.host.look.x += -(float)evt.motion.xrel / window_size.x * twopi;
+		state.host.look.y += (float)evt.motion.yrel / window_size.x * twopi;
+		state.host.look.x = fmod(state.host.look.x, twopi);
+		state.host.look.y = glm::clamp(fmod(state.host.look.y, twopi), -pitwo + .05f, pitwo - .05f);
 
 		// state.paddle.x = (evt.motion.x - 0.5f * window_size.x) / (0.5f * window_size.x) * Game::FrameWidth;
 		// state.paddle.x = std::max(state.paddle.x, -0.5f * Game::FrameWidth + 0.5f * Game::PaddleWidth);
@@ -166,14 +185,30 @@ bool GameMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 	return false;
 }
 
+void apply_transforms(TankTransforms &tr, Tank &ta) {
+	tr.tank_top_transform->rotation = glm::quat(glm::vec3(0, ta.look.x, 0));
+	tr.tank_cannon_transform->rotation = glm::quat(glm::vec3(ta.cannon_pitch, 0, 0));
+	tr.tank_transform->position = ta.pos;
+
+	float tank_ang = atan2(ta.last_fwd.z, ta.last_fwd.x) + glm::pi<float>() / 2;
+	glm::quat bot_rot = glm::quat(glm::vec3(glm::pi<float>(), 0, 0));
+	bot_rot *= glm::quat(0, sin(tank_ang / 2), 0, cos(tank_ang / 2));
+	tr.tank_bot_transform->rotation = bot_rot;
+}
+
 void GameMode::update(float elapsed) {
 	state.update(elapsed);
 
+	// every 30ms send tank data to server
+	
 	if (client.connection) {
-		//send game state to server:
-		client.connection.send_raw("s", 1);
-		float d = 0;
-		client.connection.send_raw(&d, sizeof(float));
+		static auto then = std::chrono::steady_clock::now();
+		auto now = std::chrono::steady_clock::now();
+		if (now > then + std::chrono::milliseconds(100)) {
+			client.connection.send_raw("t", 1);
+			client.connection.send_raw(&state.host, sizeof(Tank));
+			then = now;
+		}
 	}
 
 	client.poll([&](Connection *c, Connection::Event event){
@@ -182,22 +217,53 @@ void GameMode::update(float elapsed) {
 		} else if (event == Connection::OnClose) {
 			std::cerr << "Lost connection to server." << std::endl;
 		} else { assert(event == Connection::OnRecv);
-			std::cerr << "Ignoring " << c->recv_buffer.size() << " bytes from server." << std::endl;
-			c->recv_buffer.clear();
+			while(c->recv_buffer.size() > 0) {
+				char header = c->recv_buffer[0];
+				auto begin = c->recv_buffer.begin();
+				if (header == 'h') {
+					std::cout << "Received hello from server" << std::endl;
+					c->recv_buffer.erase(begin, begin + 1);
+				} else if(header == 't') {
+					// tank pos/rot data
+					std::cout << "received tank" << std::flush << std::endl;
+					if(c->recv_buffer.size() < 1 + sizeof(Tank)) {
+						return; // wait for data
+					}
+					Tank in = Tank(HOST_PLAYER);
+					memcpy(&in, c->recv_buffer.data() + 1, sizeof(Tank));
+					c->recv_buffer.erase(begin, begin + 1 + sizeof(Tank));
+
+					if(in.owner == HOST_PLAYER)
+						state.host = in;
+					else
+						state.other = in;
+				} else if (header == 'p') {
+					// on projectile fire
+					if(c->recv_buffer.size() < 1 + sizeof(Projectile)) {
+						return; // wait for data
+					}
+					c->recv_buffer.erase(begin, begin + 1 + sizeof (Projectile));
+				//} else if (header == 'e') {
+					// on projectile explode
+				} else {
+					std::cerr << "Invalid network header byte " << header << " received.  Ignoring remainder (" << c->recv_buffer.size() << " bytes) from server." << std::endl;
+					c->recv_buffer.clear();
+				}
+			}
 		}
 	});
 
 	const Uint8* key_state = SDL_GetKeyboardState(NULL);
 
 	if(key_state[SDL_SCANCODE_E]) {
-		state.cannon_pitch += 0.5f * elapsed;
+		state.host.cannon_pitch += 0.5f * elapsed;
 	}
 	if(key_state[SDL_SCANCODE_Q]) {
-		state.cannon_pitch -= 0.5f * elapsed;
+		state.host.cannon_pitch -= 0.5f * elapsed;
 	}
-	state.cannon_pitch = glm::clamp(state.cannon_pitch, 0.f, .5f * glm::pi<float>());
+	state.host.cannon_pitch = glm::clamp(state.host.cannon_pitch, 0.f, .5f * glm::pi<float>());
 
-	auto cam_rot = glm::quat(glm::vec3(state.player_look.y, state.player_look.x, 0));
+	auto cam_rot = glm::quat(glm::vec3(state.host.look.y, state.host.look.x, 0));
 	auto cam_rot_fwd = cam_rot * glm::vec3(0, 0, -1);
 
 	auto tank_fwd = cam_rot_fwd;
@@ -217,24 +283,17 @@ void GameMode::update(float elapsed) {
 	float move_sqlen = glm::dot(move, move);
 	if(move_sqlen > .001f) {
 		move /= sqrt(move_sqlen);
-		state.player_last_fwd = move;
+		state.host.last_fwd = move;
 	}
 
-	state.player_pos += move * 5.f * elapsed;
-
-	float tank_ang = atan2(state.player_last_fwd.z, state.player_last_fwd.x) + glm::pi<float>() / 2;
-	glm::quat bot_rot = glm::quat(glm::vec3(glm::pi<float>(), 0, 0));
-	bot_rot *= glm::quat(0, sin(tank_ang / 2), 0, cos(tank_ang / 2));
-	tank_bot_transform->rotation = bot_rot;
+	state.host.pos += move * 5.f * elapsed;
 
 	// Convert logical state to things relevant for rendering
 	camera->transform->rotation = cam_rot;
-	camera->transform->position = state.player_pos + glm::vec3(0, 1.5f, 0) + (-cam_rot_fwd * 7.f);
+	camera->transform->position = state.host.pos + glm::vec3(0, 1.5f, 0) + (-cam_rot_fwd * 7.f);
 
-	tank_top_transform->rotation = glm::quat(glm::vec3(0, state.player_look.x, 0));
-	tank_cannon_transform->rotation = glm::quat(glm::vec3(state.cannon_pitch, 0, 0));
-
-	tank_transform->position = state.player_pos;
+	apply_transforms(host_transforms, state.host);
+	apply_transforms(other_transforms, state.other);
 }
 
 void GameMode::draw(glm::uvec2 const &drawable_size) {

@@ -3,25 +3,38 @@
 #include <glm/glm.hpp>
 
 enum Player {
-	PLAYER_1 = 1, PLAYER_2 = 2
+	HOST_PLAYER = 0,
+	OTHER_PLAYER = 1
 };
 
 struct Projectile {
-	glm::vec3 initial_pos;
-	glm::vec3 initial_vel;
-	float fire_time;
-	Player origin;
+	glm::vec3 initial_pos = glm::vec3(0,0,0);
+	glm::vec3 initial_vel = glm::vec3(0,0,0);
+	float fire_time = 0;
+	Player origin = Player::HOST_PLAYER;
 };
 
-struct Game {
+struct Tank {
 	// Player view direction in radians (yaw, pitch)
-	glm::vec2 player_look = glm::vec2(0, 0);
+	glm::fvec2 look = glm::fvec2(0, 0);
 	// Player position in worldspace
-	glm::vec3 player_pos = glm::vec3(0, 0, 0);
+	glm::fvec3 pos = glm::fvec3(0, 0, 0);
 	// Last recorded player move direction
-	glm::vec3 player_last_fwd = glm::vec3(0, 0, 1);
+	glm::fvec3 last_fwd = glm::fvec3(0, 0, 1);
 	// Cannon pitch in radians, range [0, pi/2]
 	float cannon_pitch = 0;
+	// Player that owns this tank
+	Player owner;
+
+	Tank(Player owner) : owner(owner) {}
+};
+
+static_assert(sizeof(Tank) == 8 + 12 + 12 + 4 + 4, "Tank is packed");
+static_assert(sizeof(Projectile) == 12 + 12 + 4 + 4, "Projectile is packed");
+
+struct Game {
+	Tank host = Tank(HOST_PLAYER);
+	Tank other = Tank(OTHER_PLAYER);
 
 	void update(float time);
 

@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
 	SDL_SetWindowMinimumSize(window, 100, 100);
 
 	//allow relative mouse mode
-	SDL_SetRelativeMouseMode(SDL_TRUE);
+	//SDL_SetRelativeMouseMode(SDL_TRUE);
 
 	if (!window) {
 		std::cerr << "Error creating SDL window: " << SDL_GetError() << std::endl;
