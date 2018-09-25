@@ -4,7 +4,7 @@ Title: Super Tanks 3D
 
 Author: Adrian Biagioli
 
-Design Document: [TODO: name of design document](http://graphics.cs.cmu.edu/courses/15-466-f18/game2-designs/ajaiswal/)
+Design Document: [Super Tanks](http://graphics.cs.cmu.edu/courses/15-466-f18/game2-designs/ajaiswal/)
 
 Screen Shot:
 
