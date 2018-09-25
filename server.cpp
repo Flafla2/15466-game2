@@ -72,6 +72,31 @@ int main(int argc, char **argv) {
 						}
 						first = false;
 					}
+				} else if (c->recv_buffer[0] == 'p') {
+					if (c->recv_buffer.size() < 1 + sizeof(Projectile)) {
+						return; //wait for more data
+					}
+
+					bool first = true;
+					Projectile pl;
+					for(auto connection = server.connections.begin(); connection != server.connections.end(); ++connection) {
+						if(connection->socket == c->socket) {
+							std::vector< char >& buf = connection->recv_buffer;
+
+							memcpy(&pl, ((char*)(buf.data())) + 1, sizeof(Projectile));
+							buf.erase(buf.begin(), buf.begin() + 1 + sizeof(Projectile));
+
+							pl.origin = OTHER_PLAYER;
+						}
+						first = false;
+					}
+
+					for(auto connection = server.connections.begin(); connection != server.connections.end(); ++connection) {
+						if(connection->socket != c->socket) {
+							connection->send_raw("p", 1);
+							connection->send(pl);
+						}
+					}
 				}
 			}
 		}, 0.01);

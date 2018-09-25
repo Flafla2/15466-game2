@@ -1,11 +1,10 @@
-# Game Information
-(Note: fill in this portion with information about your game.)
+# SUPER TANKS 3D!!!1 (beta)
 
-Title: (TODO: your game's title)
+Title: Super Tanks 3D
 
-Author: (TODO: your name)
+Author: Adrian Biagioli
 
-Design Document: [TODO: name of design document](TODO: link to design document)
+Design Document: [TODO: name of design document](http://graphics.cs.cmu.edu/courses/15-466-f18/game2-designs/ajaiswal/)
 
 Screen Shot:
 
@@ -13,15 +12,40 @@ Screen Shot:
 
 How To Play:
 
-TODO: describe the controls and (if needed) goals/strategy.
+Launch the server executable with 
+
+    $ ./server <port>
+
+Launch the client executable with
+    $ ./client <server> <port>
+
+
+Use WSAD to move and Q/E to aim.  The guns are broken at the moment, so you will have to find out some other
+way to have fun.
 
 Changes From The Design Document:
 
-TODO: what did you need to add/remove/modify from the original design? Why?
+I (tried) to make it 3D!  At the very least, the two tanks control quite well and network together.
 
 Good / Bad / Ugly Code:
 
-TODO: provide examples of code you wrote from this project that you think is good (elegant, simple, useful), bad (hack-y, brittle, unreadable), and ugly (particularly inelegant). Provide a sentence or two of justification for the examples.
+I'm quite proud of the work that I did on the Tank controls and networking for the tanks specifically.
+I worked on a modification to the scene loader that allows for empty blender objects.  This made it way
+easier to support the complex geometry of the tanks and made the math more elegant.
+
+The networking code is a bit hacky (it uses TCP after all) and I had quite a bit of trouble dealing with
+getting combat working.  I actually thought that the 3D aspect of this project would be the most challenging
+part -- I now realize that getting combat working was!
+
+The original plan was to have positional movement like now, but in addition to that the players could shoot
+at each other and engage in combat.  If I had unlimited time, I would use a dynamic heightmap that could
+morph when shot at.  This is also a pretty elegant way to get around walkmeshes, as it is much easier to
+piece together a movement algorithm around a heightmap than with barycentric coordinates.  But alas, I had
+no time.
+
+I also wanted to animate the Tanks better -- a simple tiling UV map for the treads on the wheels that
+scrolled as the player moves would have gone a long way.  However due to the TOC I only had around 15 hours
+to put into this project, and much of that was spent on networking.
 
 # Using This Base Code
 

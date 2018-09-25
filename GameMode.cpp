@@ -44,9 +44,7 @@ MLoad< GLuint > env_vao(LoadTagDefault, [](){
 	return new GLuint(env_meshes->make_vao_for_program(vertex_color_program->program));
 });
 
-MLoad< GLuint > ball_vao(LoadTagDefault, [](){
-	return new GLuint(ball_meshes->make_vao_for_program(vertex_color_program->program));
-});
+GLuint ball_vao;
 
 struct TankTransforms {
 	Scene::Transform *tank_transform = nullptr;
@@ -154,6 +152,11 @@ GameMode::GameMode(Client &client_) : client(client_) {
 	camera_transform->rotation = glm::quat(glm::vec3(glm::radians(45.f), 0, 0));
 	camera = full_scene->new_camera(camera_transform);
 
+	state.host.pos  = glm::vec3(0, 0, 3.f);
+	state.other.pos = glm::vec3(0, 0, -3.f);
+
+	ball_vao = ball_meshes->make_vao_for_program(vertex_color_program->program);
+
 	client.connection.send_raw("h", 1); //send a 'hello' to the server
 }
 
@@ -173,8 +176,13 @@ bool GameMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 		Projectile proj;
 		auto mat = host_transforms.tank_cannon_transform->make_local_to_world();
 		proj.initial_pos = mat * glm::vec4(0, 0, 2.f, 1);
-		proj.initial_vel = mat * glm::vec4(0, 0, -1.f, 0);
+		proj.initial_vel = mat * glm::vec4(0, 0, -1.f, 0) * 20.f;
 		proj.origin = HOST_PLAYER;
+
+		client.connection.send_raw("p", 1);
+		client.connection.send(proj);
+
+		state.projectiles.push_back(proj);
 	}
 
 	if (evt.type == SDL_MOUSEMOTION) {
@@ -226,6 +234,9 @@ void GameMode::update(float elapsed) {
 				char header = c->recv_buffer[0];
 				auto begin = c->recv_buffer.begin();
 				if (header == 'h') {
+					if(c->recv_buffer.size() < 1 + sizeof(float)) {
+						return; // wait for data
+					}
 					std::cout << "Received hello from server" << std::endl;
 
 					memcpy(&state.time_sync_net, (c->recv_buffer.data()) + 1, sizeof(float));
@@ -250,6 +261,9 @@ void GameMode::update(float elapsed) {
 					if(c->recv_buffer.size() < 1 + sizeof(Projectile)) {
 						return; // wait for data
 					}
+					Projectile in = Projectile();
+					memcpy(&in, (char*)(c->recv_buffer.data()) + 1, sizeof(Projectile));
+					state.projectiles.push_back(in);
 					c->recv_buffer.erase(begin, begin + 1 + sizeof (Projectile));
 				//} else if (header == 'e') {
 					// on projectile explode
@@ -330,7 +344,7 @@ void GameMode::draw(glm::uvec2 const &drawable_size) {
 
 	static std::vector<Scene::Object *> ball_objects;
 	while(ball_objects.size() < state.projectiles.size()) {
-		Scene::Transform *t = new Scene::Transform();
+		Scene::Transform *t = full_scene->new_transform();
 		Scene::Object *obj = full_scene->new_object(t);
 
 		obj->program = vertex_color_program->program;
@@ -339,7 +353,7 @@ void GameMode::draw(glm::uvec2 const &drawable_size) {
 		obj->program_itmv_mat3 = vertex_color_program->normal_to_light_mat3;
 
 		obj->empty = false;
-		obj->vao = *ball_vao;
+		obj->vao = ball_vao;
 		obj->start = ball_mesh->start;
 		obj->count = ball_mesh->count;
 
@@ -352,6 +366,8 @@ void GameMode::draw(glm::uvec2 const &drawable_size) {
 		}
 		ball_objects.resize(state.projectiles.size());
 	}
+
+	assert(ball_objects.size() == state.projectiles.size());
 
 	auto cur_time = std::chrono::steady_clock::now();
 	float net_time = (cur_time - state.time_sync_loc).count() + state.time_sync_net;
