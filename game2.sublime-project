@@ -20,9 +20,9 @@
                     "cmd": ["jam clean"]
                 },
                 {
-                	"name": "Run",
+                	"name": "Run Client",
                 	"working_dir": "$project_path/dist",
-                	"cmd": "./main"
+                	"cmd": "./client localhost 50420"
                 },
                 {
                 	"name": "Regenerate assets",

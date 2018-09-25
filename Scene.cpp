@@ -69,6 +69,7 @@ void Scene::Transform::DEBUG_assert_valid_pointers() const {
 		assert((next_sibling == nullptr) == (this == parent->last_child));
 	}
 	//check proper return pointers from neighbors:
+	assert((first_child == nullptr) == (last_child == nullptr));
 	assert(prev_sibling == nullptr || prev_sibling->next_sibling == this);
 	assert(next_sibling == nullptr || next_sibling->prev_sibling == this);
 	assert(last_child == nullptr || last_child->parent == this);
@@ -82,7 +83,10 @@ void Scene::Transform::set_parent(Transform *new_parent, Transform *before) {
 		//remove from existing parent:
 		if (prev_sibling) prev_sibling->next_sibling = next_sibling;
 		if (next_sibling) next_sibling->prev_sibling = prev_sibling;
-		else parent->last_child = prev_sibling;
+		else {
+			parent->last_child = prev_sibling;
+			parent->first_child = prev_sibling;
+		}
 		next_sibling = prev_sibling = nullptr;
 	}
 	parent = new_parent;
@@ -97,6 +101,10 @@ void Scene::Transform::set_parent(Transform *new_parent, Transform *before) {
 			parent->last_child = this;
 		}
 		if (prev_sibling) prev_sibling->next_sibling = this;
+		else parent->first_child = this;
+
+		if(!(parent->last_child))
+			parent->last_child = this;
 	}
 	DEBUG_assert_valid_pointers();
 }
@@ -168,6 +176,10 @@ void Scene::draw(Scene::Camera const *camera) const {
 	glm::mat4 world_to_clip = camera->make_projection() * world_to_camera;
 
 	for (Scene::Object *object = first_object; object != nullptr; object = object->alloc_next) {
+		// if no mesh, ignore
+		if(object->empty)
+			continue;
+
 		glm::mat4 local_to_world = object->transform->make_local_to_world();
 
 		//compute modelview+projection (object space to clip space) matrix for this object:
@@ -200,6 +212,44 @@ void Scene::draw(Scene::Camera const *camera) const {
 	}
 }
 
+void Scene::append_scene(Scene &&s) {
+	auto cur_tr = first_transform;
+	auto cur_ca = first_camera;
+	auto cur_ob = first_object;
+
+	if(cur_tr) {
+		while(cur_tr->alloc_next)
+			cur_tr = cur_tr->alloc_next;
+		cur_tr->alloc_next = s.first_transform;
+		s.first_transform->alloc_prev_next = &cur_tr->alloc_next;
+	} else {
+		first_transform = s.first_transform;
+	}
+
+	if(cur_ca) {
+		while(cur_ca->alloc_next)
+			cur_ca = cur_ca->alloc_next;
+		cur_ca->alloc_next = s.first_camera;
+		s.first_camera->alloc_prev_next = &cur_ca->alloc_next;
+	} else {
+		first_camera = s.first_camera;
+	}
+
+	if(cur_ob) {
+		while(cur_ob->alloc_next)
+			cur_ob = cur_ob->alloc_next;
+		cur_ob->alloc_next = s.first_object;
+		s.first_object->alloc_prev_next = &cur_ob->alloc_next;
+	} else {
+		first_object = s.first_object;
+	}
+
+	// make s safe to destruct (without destroying pointers)
+	s.first_transform = nullptr;
+	s.first_camera = nullptr;
+	s.first_object = nullptr;
+}
+
 
 Scene::~Scene() {
 	while (first_camera) {
@@ -214,7 +264,7 @@ Scene::~Scene() {
 }
 
 void Scene::load(std::string const &filename,
-	std::function< void(Scene &, Transform *, std::string const &) > const &on_object) {
+	std::function< void(Scene &, Transform *, std::string const *) > const &on_object) {
 
 	std::ifstream file(filename, std::ios::binary);
 
@@ -314,14 +364,14 @@ void Scene::load(std::string const &filename,
 		std::string name = std::string(names.begin() + m.name_begin, names.begin() + m.name_end);
 
 		if (on_object) {
-			on_object(*this, hierarchy_transforms[m.transform], name);
+			on_object(*this, hierarchy_transforms[m.transform], &name);
 		}
 
 	}
 
 	for (auto const &e : empties) {
 		if (e.transform >= hierarchy_transforms.size()) {
-			throw std::runtime_error("scene file '" + filename + "' contains empty entry with invalid transform index (" + std::to_string(m.transform) + ")");
+			throw std::runtime_error("scene file '" + filename + "' contains empty entry with invalid transform index (" + std::to_string(e.transform) + ")");
 		}
 
 		if (on_object) {
@@ -342,5 +392,4 @@ void Scene::load(std::string const &filename,
 		camera->near = c.clip_near;
 		//N.b. far plane is ignored because cameras use infinite perspective matrices.
 	}
-
 }

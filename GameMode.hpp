@@ -6,6 +6,7 @@
 #include "GL.hpp"
 #include "Connection.hpp"
 #include "Game.hpp"
+#include "Scene.hpp"
 
 #include <SDL.h>
 #include <glm/glm.hpp>
@@ -29,6 +30,9 @@ struct GameMode : public Mode {
 
 	//draw is called after update:
 	virtual void draw(glm::uvec2 const &drawable_size) override;
+
+	//------- scene data -------
+	Scene *full_scene;
 
 	//------- game state -------
 	Game state;

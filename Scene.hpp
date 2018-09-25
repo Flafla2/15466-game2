@@ -13,6 +13,9 @@
 //"Scene" manages a hierarchy of transformations with, potentially, attached information.
 struct Scene {
 
+	struct Object;
+	struct Camera;
+
 	struct Transform {
 		//useful to know sometimes:
 		std::string name;
@@ -24,6 +27,7 @@ struct Scene {
 
 		//hierarchy information:
 		Transform *parent = nullptr;
+		Transform *first_child = nullptr;
 		Transform *last_child = nullptr;
 		Transform *prev_sibling = nullptr;
 		Transform *next_sibling = nullptr;
@@ -56,6 +60,18 @@ struct Scene {
 		//used by Scene to manage allocation:
 		Transform **alloc_prev_next = nullptr;
 		Transform *alloc_next = nullptr;
+
+		enum Owner {
+			UNKNOWN, OBJECT, CAMERA
+		};
+
+		Owner owner_type;
+
+		union {
+			void *owner = nullptr;
+			Object *owner_object;
+			Camera *owner_camera;
+		};
 	};
 
 	//"Object"s contain information needed to render meshes:
@@ -63,6 +79,9 @@ struct Scene {
 		Transform *transform; //objects must be attached to transforms.
 		Object(Transform *transform_) : transform(transform_) {
 			assert(transform);
+			assert(!(transform->owner));
+			transform->owner_object = this;
+			transform->owner_type = Transform::Owner::OBJECT;
 		}
 
 		//program info:
@@ -75,6 +94,7 @@ struct Scene {
 		std::function< void() > set_uniforms; //will be called before rendering object, use to set material parameters (e.g. glossiness)
 
 		//attribute info:
+		bool empty = true; // true iff there is no mesh to render for this object
 		GLuint vao = 0;
 		GLuint start = 0;
 		GLuint count = 0;
@@ -89,6 +109,9 @@ struct Scene {
 		Transform *transform; //cameras must be attached to transforms.
 		Camera(Transform *transform_) : transform(transform_) {
 			assert(transform);
+			assert(!(transform->owner));
+			transform->owner_camera = this;
+			transform->owner_type = Transform::Owner::CAMERA;
 		}
 		//NOTE: cameras look along their -z axis
 
@@ -117,6 +140,7 @@ struct Scene {
 	//Delete an object:
 	void delete_object(Object *);
 
+
 	//Create a new camera attached to a transform:
 	Camera *new_camera(Transform *transform);
 	//Delete a camera:
@@ -127,6 +151,13 @@ struct Scene {
 	Object *first_object = nullptr;
 	Camera *first_camera = nullptr;
 	//(you shouldn't be manipulating these pointers directly
+
+	// Adding two scenes merges the objects / cameras / transforms of those scenes
+	// Useful for loading multiple scenes with transform heirarchies
+	// Must use c++11 move semantics to call, eg:
+	// Scene s1, s2;
+	// s1.append_scene(std::move(s2));
+	void append_scene(Scene &&s);
 
 	//------ functions to traverse the scene ------
 
@@ -139,6 +170,6 @@ struct Scene {
 	//add transforms/objects/cameras from a scene file:
 	// the 'on_object' callback gives you a chance to look up a mesh by name and make an object.
 	void load(std::string const &filename,
-		std::function< void(Scene &, Transform *, std::string const &) > const &on_object = nullptr
+		std::function< void(Scene &, Transform *, std::string const *) > const &on_object = nullptr
 	);
 };
