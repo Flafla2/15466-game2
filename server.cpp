@@ -15,10 +15,12 @@ int main(int argc, char **argv) {
 
 	Game state;
 
+	auto game_start = std::chrono::steady_clock::now();
+
 	while (1) {
 		static auto then = std::chrono::steady_clock::now();
 		auto now = std::chrono::steady_clock::now();
-		if (now > then + std::chrono::milliseconds(300)) {
+		if (now > then + std::chrono::milliseconds(50)) {
 			bool f = true;
 			for(auto connection = server.connections.begin(); connection != server.connections.end(); ++connection) {
 				Tank dd = f ? state.other : state.host;
@@ -40,6 +42,8 @@ int main(int argc, char **argv) {
 					c->close();
 				} else {
 					c->send_raw("h", 1);
+					float elapsed_secs = (game_start - now).count();
+					c->send(elapsed_secs);
 				}
 
 			} else if (evt == Connection::OnClose) {

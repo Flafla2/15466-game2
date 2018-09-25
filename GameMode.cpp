@@ -36,15 +36,15 @@ Load< MeshBuffer::Mesh > ball_mesh(LoadTagDefault, []() {
 	return &(ball_meshes->lookup("ball"));
 });
 
-Load< GLuint > tank_vao(LoadTagDefault, [](){
+MLoad< GLuint > tank_vao(LoadTagDefault, [](){
 	return new GLuint(tank_meshes->make_vao_for_program(vertex_color_program->program));
 });
 
-Load< GLuint > env_vao(LoadTagDefault, [](){
+MLoad< GLuint > env_vao(LoadTagDefault, [](){
 	return new GLuint(env_meshes->make_vao_for_program(vertex_color_program->program));
 });
 
-Load< GLuint > ball_vao(LoadTagDefault, [](){
+MLoad< GLuint > ball_vao(LoadTagDefault, [](){
 	return new GLuint(ball_meshes->make_vao_for_program(vertex_color_program->program));
 });
 
@@ -168,6 +168,15 @@ bool GameMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 		return false;
 	}
 
+	if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_SPACE) {
+		// Fire projectile
+		Projectile proj;
+		auto mat = host_transforms.tank_cannon_transform->make_local_to_world();
+		proj.initial_pos = mat * glm::vec4(0, 0, 2.f, 1);
+		proj.initial_vel = mat * glm::vec4(0, 0, -1.f, 0);
+		proj.origin = HOST_PLAYER;
+	}
+
 	if (evt.type == SDL_MOUSEMOTION) {
 		const float twopi = 2.0f * glm::pi<float>();
 		const float pitwo = 0.5f * glm::pi<float>();
@@ -176,10 +185,6 @@ bool GameMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 		state.host.look.y += (float)evt.motion.yrel / window_size.x * twopi;
 		state.host.look.x = fmod(state.host.look.x, twopi);
 		state.host.look.y = glm::clamp(fmod(state.host.look.y, twopi), -pitwo + .05f, pitwo - .05f);
-
-		// state.paddle.x = (evt.motion.x - 0.5f * window_size.x) / (0.5f * window_size.x) * Game::FrameWidth;
-		// state.paddle.x = std::max(state.paddle.x, -0.5f * Game::FrameWidth + 0.5f * Game::PaddleWidth);
-		// state.paddle.x = std::min(state.paddle.x,  0.5f * Game::FrameWidth - 0.5f * Game::PaddleWidth);
 	}
 
 	return false;
@@ -204,7 +209,7 @@ void GameMode::update(float elapsed) {
 	if (client.connection) {
 		static auto then = std::chrono::steady_clock::now();
 		auto now = std::chrono::steady_clock::now();
-		if (now > then + std::chrono::milliseconds(100)) {
+		if (now > then + std::chrono::milliseconds(50)) {
 			client.connection.send_raw("t", 1);
 			client.connection.send(state.host);
 			then = now;
@@ -222,7 +227,11 @@ void GameMode::update(float elapsed) {
 				auto begin = c->recv_buffer.begin();
 				if (header == 'h') {
 					std::cout << "Received hello from server" << std::endl;
-					c->recv_buffer.erase(begin, begin + 1);
+
+					memcpy(&state.time_sync_net, (c->recv_buffer.data()) + 1, sizeof(float));
+					state.time_sync_loc = std::chrono::steady_clock::now();
+
+					c->recv_buffer.erase(begin, begin + 5);
 				} else if(header == 't') {
 					// tank pos/rot data
 					if(c->recv_buffer.size() < 1 + sizeof(Tank)) {
@@ -282,7 +291,9 @@ void GameMode::update(float elapsed) {
 	float move_sqlen = glm::dot(move, move);
 	if(move_sqlen > .001f) {
 		move /= sqrt(move_sqlen);
-		state.host.last_fwd = move;
+		// Good thing this game runs at a fixed framerate ;)
+		// (seriously though i despise doing this slerp-every-frame BS to approximate smoothing)
+		state.host.last_fwd = glm::mix(state.host.last_fwd, move, 0.7f);
 	}
 
 	state.host.pos += move * 5.f * elapsed;
@@ -298,7 +309,7 @@ void GameMode::update(float elapsed) {
 void GameMode::draw(glm::uvec2 const &drawable_size) {
 	camera->aspect = drawable_size.x / float(drawable_size.y);
 
-	glClearColor(0.25f, 0.0f, 0.5f, 0.0f);
+	glClearColor(0.6f, 0.6f, 0.8f, 0.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	//set up basic OpenGL state:
@@ -316,6 +327,38 @@ void GameMode::draw(glm::uvec2 const &drawable_size) {
 	glUniform3fv(vertex_color_program->sky_direction_vec3, 1, glm::value_ptr(glm::vec3(0.0f, 1.0f, 0.0f)));
 
 	full_scene->draw(camera);
+
+	static std::vector<Scene::Object *> ball_objects;
+	while(ball_objects.size() < state.projectiles.size()) {
+		Scene::Transform *t = new Scene::Transform();
+		Scene::Object *obj = full_scene->new_object(t);
+
+		obj->program = vertex_color_program->program;
+		obj->program_mvp_mat4  = vertex_color_program->object_to_clip_mat4;
+		obj->program_mv_mat4x3 = vertex_color_program->object_to_light_mat4x3;
+		obj->program_itmv_mat3 = vertex_color_program->normal_to_light_mat3;
+
+		obj->empty = false;
+		obj->vao = *ball_vao;
+		obj->start = ball_mesh->start;
+		obj->count = ball_mesh->count;
+
+		ball_objects.push_back(obj);
+	}
+
+	if(ball_objects.size() > state.projectiles.size()) {
+		for(int x = state.projectiles.size(); x < ball_objects.size(); ++x) {
+			full_scene->delete_object(ball_objects[x]);
+		}
+		ball_objects.resize(state.projectiles.size());
+	}
+
+	auto cur_time = std::chrono::steady_clock::now();
+	float net_time = (cur_time - state.time_sync_loc).count() + state.time_sync_net;
+	for(int x = 0; x < ball_objects.size(); ++x) {
+		auto p = state.projectiles[x];
+		ball_objects[x]->transform->position = p.get_position(net_time - p.fire_time);
+	}
 
 	GL_ERRORS();
 }
