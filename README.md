@@ -32,7 +32,8 @@ Good / Bad / Ugly Code:
 
 I'm quite proud of the work that I did on the Tank controls and networking for the tanks specifically.
 I worked on a modification to the scene loader that allows for empty blender objects.  This made it way
-easier to support the complex geometry of the tanks and made the math more elegant.
+easier to support the complex geometry of the tanks and made the math more elegant.  I also spent a lot of
+time on writing scripts for the Sceneloader to, for example, merge two scenes together.
 
 The networking code is a bit hacky (it uses TCP after all) and I had quite a bit of trouble dealing with
 getting combat working.  I actually thought that the 3D aspect of this project would be the most challenging
