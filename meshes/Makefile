@@ -16,6 +16,9 @@ all : \
 	$(DIST)/menu.p \
 	$(DIST)/tank.pnc \
 	$(DIST)/tank.scene \
+	$(DIST)/battlefield.pnc \
+	$(DIST)/battlefield.scene \
+	$(DIST)/ball.pnc \
 
 $(DIST)/%.p : %.blend export-meshes.py
 	$(BLENDER) --background --python export-meshes.py -- '$<' '$@'

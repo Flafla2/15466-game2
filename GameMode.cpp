@@ -20,24 +20,45 @@
 #include <random>
 
 
-Load< MeshBuffer > meshes(LoadTagDefault, [](){
+Load< MeshBuffer > tank_meshes(LoadTagDefault, [](){
 	return new MeshBuffer(data_path("tank.pnc"));
 });
 
-Load< GLuint > meshes_for_vertex_color_program(LoadTagDefault, [](){
-	return new GLuint(meshes->make_vao_for_program(vertex_color_program->program));
+Load< MeshBuffer > env_meshes(LoadTagDefault, [](){
+	return new MeshBuffer(data_path("battlefield.pnc"));
+});
+
+Load< MeshBuffer > ball_meshes(LoadTagDefault, [](){
+	return new MeshBuffer(data_path("ball.pnc"));;
+});
+
+Load< MeshBuffer::Mesh > ball_mesh(LoadTagDefault, []() {
+	return &(ball_meshes->lookup("ball"));
+});
+
+Load< GLuint > tank_vao(LoadTagDefault, [](){
+	return new GLuint(tank_meshes->make_vao_for_program(vertex_color_program->program));
+});
+
+Load< GLuint > env_vao(LoadTagDefault, [](){
+	return new GLuint(env_meshes->make_vao_for_program(vertex_color_program->program));
+});
+
+Load< GLuint > ball_vao(LoadTagDefault, [](){
+	return new GLuint(ball_meshes->make_vao_for_program(vertex_color_program->program));
 });
 
 Scene::Transform *tank_transform = nullptr;
+Scene::Transform *tank_cannon_transform = nullptr;
 Scene::Transform *tank_top_transform = nullptr;
 Scene::Transform *tank_bot_transform = nullptr;
 
 Scene::Camera *camera = nullptr;
 
-Scene *do_load_scene(std::string path, std::map<std::string, Scene::Transform **> transform_names, Scene::Camera **camera_ptr) {
+Scene *do_load_scene(std::string path, std::map<std::string, Scene::Transform **> transform_names, Scene::Camera **camera_ptr, const MeshBuffer *meshes, const GLuint *vao) {
 	Scene *ret = new Scene;
 	//load transform hierarchy:
-	ret->load(data_path(path), [](Scene &s, Scene::Transform *t, std::string const *m_){
+	ret->load(data_path(path), [meshes, vao](Scene &s, Scene::Transform *t, std::string const *m_){
 		Scene::Object *obj = s.new_object(t);
 
 		obj->program = vertex_color_program->program;
@@ -50,7 +71,7 @@ Scene *do_load_scene(std::string path, std::map<std::string, Scene::Transform **
 			std::string const &m = *m_;
 			MeshBuffer::Mesh const &mesh = meshes->lookup(m);
 			obj->empty = false;
-			obj->vao = *meshes_for_vertex_color_program;
+			obj->vao = *vao;
 			obj->start = mesh.start;
 			obj->count = mesh.count;
 		}
@@ -90,28 +111,37 @@ MLoad< Scene > tank_scene(LoadTagDefault, [](){
 	std::map<std::string, Scene::Transform **> map;
 
 	typedef std::pair<std::string, Scene::Transform **> pp;
-	map.insert(pp("tank",     &tank_transform));
-	map.insert(pp("tank_top", &tank_top_transform));
-	map.insert(pp("tank_bot", &tank_bot_transform));
+	map.insert(pp("tank",   &tank_transform));
+	map.insert(pp("top",    &tank_top_transform));
+	map.insert(pp("bottom", &tank_bot_transform));
+	map.insert(pp("cannon", &tank_cannon_transform));
 
-	return do_load_scene("tank.scene", map, nullptr);
+	return do_load_scene("tank.scene", map, nullptr, &*tank_meshes, &*tank_vao);
+});
+
+MLoad< Scene > env_scene(LoadTagDefault, []() {
+	std::map<std::string, Scene::Transform **> map;
+	return do_load_scene("battlefield.scene", map, nullptr, &*env_meshes, &*env_vao);
 });
 
 GameMode::GameMode(Client &client_) : client(client_) {
-	auto camera_transform = new Scene::Transform;
-	camera_transform->position = glm::vec3(0, -5, 5);
-	camera_transform->rotation = glm::quat(glm::vec3(glm::radians(45.f), 0, 0));
-	camera = new Scene::Camera(camera_transform);
-
 	// Compile scene from loaded asset files
 	full_scene = new Scene;
 	full_scene->append_scene(std::move(*tank_scene));
+	full_scene->append_scene(std::move(*env_scene));
+
+	auto camera_transform = new Scene::Transform;
+	camera_transform->position = glm::vec3(0, -5, 5);
+	camera_transform->rotation = glm::quat(glm::vec3(glm::radians(45.f), 0, 0));
+	camera = full_scene->new_camera(camera_transform);
 
 	client.connection.send_raw("h", 1); //send a 'hello' to the server
 }
 
 GameMode::~GameMode() {
 }
+
+#include <iostream>
 
 bool GameMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size) {
 	//ignore any keys that are the result of automatic key repeat:
@@ -120,6 +150,14 @@ bool GameMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 	}
 
 	if (evt.type == SDL_MOUSEMOTION) {
+		const float twopi = 2.0f * glm::pi<float>();
+		const float pitwo = 0.5f * glm::pi<float>();
+
+		state.player_look.x += -(float)evt.motion.xrel / window_size.x * twopi;
+		state.player_look.y += (float)evt.motion.yrel / window_size.x * twopi;
+		state.player_look.x = fmod(state.player_look.x, twopi);
+		state.player_look.y = glm::clamp(fmod(state.player_look.y, twopi), -pitwo + .05f, pitwo - .05f);
+
 		// state.paddle.x = (evt.motion.x - 0.5f * window_size.x) / (0.5f * window_size.x) * Game::FrameWidth;
 		// state.paddle.x = std::max(state.paddle.x, -0.5f * Game::FrameWidth + 0.5f * Game::PaddleWidth);
 		// state.paddle.x = std::min(state.paddle.x,  0.5f * Game::FrameWidth - 0.5f * Game::PaddleWidth);
@@ -134,7 +172,8 @@ void GameMode::update(float elapsed) {
 	if (client.connection) {
 		//send game state to server:
 		client.connection.send_raw("s", 1);
-		client.connection.send_raw(&state.paddle.x, sizeof(float));
+		float d = 0;
+		client.connection.send_raw(&d, sizeof(float));
 	}
 
 	client.poll([&](Connection *c, Connection::Event event){
@@ -148,12 +187,54 @@ void GameMode::update(float elapsed) {
 		}
 	});
 
-	//copy game state to scene positions:
-	// ball_transform->position.x = state.ball.x;
-	// ball_transform->position.y = state.ball.y;
+	const Uint8* key_state = SDL_GetKeyboardState(NULL);
 
-	// paddle_transform->position.x = state.paddle.x;
-	// paddle_transform->position.y = state.paddle.y;
+	if(key_state[SDL_SCANCODE_E]) {
+		state.cannon_pitch += 0.5f * elapsed;
+	}
+	if(key_state[SDL_SCANCODE_Q]) {
+		state.cannon_pitch -= 0.5f * elapsed;
+	}
+	state.cannon_pitch = glm::clamp(state.cannon_pitch, 0.f, .5f * glm::pi<float>());
+
+	auto cam_rot = glm::quat(glm::vec3(state.player_look.y, state.player_look.x, 0));
+	auto cam_rot_fwd = cam_rot * glm::vec3(0, 0, -1);
+
+	auto tank_fwd = cam_rot_fwd;
+	tank_fwd.y = 0;
+	tank_fwd /= glm::length(tank_fwd);
+	auto tank_right = glm::cross(tank_fwd, glm::vec3(0, 1, 0));
+
+	glm::vec3 move(0,0,0);
+	if(key_state[SDL_SCANCODE_W])
+		move += tank_fwd;
+	if(key_state[SDL_SCANCODE_S])
+		move -= tank_fwd;
+	if(key_state[SDL_SCANCODE_D])
+		move += tank_right;
+	if(key_state[SDL_SCANCODE_A])
+		move -= tank_right;
+	float move_sqlen = glm::dot(move, move);
+	if(move_sqlen > .001f) {
+		move /= sqrt(move_sqlen);
+		state.player_last_fwd = move;
+	}
+
+	state.player_pos += move * 5.f * elapsed;
+
+	float tank_ang = atan2(state.player_last_fwd.z, state.player_last_fwd.x) + glm::pi<float>() / 2;
+	glm::quat bot_rot = glm::quat(glm::vec3(glm::pi<float>(), 0, 0));
+	bot_rot *= glm::quat(0, sin(tank_ang / 2), 0, cos(tank_ang / 2));
+	tank_bot_transform->rotation = bot_rot;
+
+	// Convert logical state to things relevant for rendering
+	camera->transform->rotation = cam_rot;
+	camera->transform->position = state.player_pos + glm::vec3(0, 1.5f, 0) + (-cam_rot_fwd * 7.f);
+
+	tank_top_transform->rotation = glm::quat(glm::vec3(0, state.player_look.x, 0));
+	tank_cannon_transform->rotation = glm::quat(glm::vec3(state.cannon_pitch, 0, 0));
+
+	tank_transform->position = state.player_pos;
 }
 
 void GameMode::draw(glm::uvec2 const &drawable_size) {

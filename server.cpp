@@ -27,8 +27,8 @@ int main(int argc, char **argv) {
 					if (c->recv_buffer.size() < 1 + sizeof(float)) {
 						return; //wait for more data
 					} else {
-						memcpy(&state.paddle.x, c->recv_buffer.data() + 1, sizeof(float));
-						c->recv_buffer.erase(c->recv_buffer.begin(), c->recv_buffer.begin() + 1 + sizeof(float));
+						//memcpy(&state.paddle.x, c->recv_buffer.data() + 1, sizeof(float));
+						//c->recv_buffer.erase(c->recv_buffer.begin(), c->recv_buffer.begin() + 1 + sizeof(float));
 					}
 				}
 			}
@@ -38,7 +38,7 @@ int main(int argc, char **argv) {
 		auto now = std::chrono::steady_clock::now();
 		if (now > then + std::chrono::seconds(1)) {
 			then = now;
-			std::cout << "Current paddle position: " << state.paddle.x << std::endl;
+			//std::cout << "Current paddle position: " << state.paddle.x << std::endl;
 		}
 	}
 }
