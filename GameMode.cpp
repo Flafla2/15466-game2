@@ -206,7 +206,7 @@ void GameMode::update(float elapsed) {
 		auto now = std::chrono::steady_clock::now();
 		if (now > then + std::chrono::milliseconds(100)) {
 			client.connection.send_raw("t", 1);
-			client.connection.send_raw(&state.host, sizeof(Tank));
+			client.connection.send(state.host);
 			then = now;
 		}
 	}
@@ -225,7 +225,6 @@ void GameMode::update(float elapsed) {
 					c->recv_buffer.erase(begin, begin + 1);
 				} else if(header == 't') {
 					// tank pos/rot data
-					std::cout << "received tank" << std::flush << std::endl;
 					if(c->recv_buffer.size() < 1 + sizeof(Tank)) {
 						return; // wait for data
 					}

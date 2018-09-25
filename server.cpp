@@ -20,18 +20,18 @@ int main(int argc, char **argv) {
 		auto now = std::chrono::steady_clock::now();
 		if (now > then + std::chrono::milliseconds(300)) {
 			bool f = true;
-			for(auto cur_c : server.connections) {
-				Tank dd = f ? state.host : state.other;
+			for(auto connection = server.connections.begin(); connection != server.connections.end(); ++connection) {
+				Tank dd = f ? state.other : state.host;
 				dd.owner = OTHER_PLAYER;
 
-				cur_c.send_raw("t", 1);
-				cur_c.send(dd);
-				//std::cout << "SEND " << f << std::endl;
+				connection->send_raw("t", 1);
+				connection->send(dd);
+
 				f = false;
 			}
 			then = now;
 		}
-		
+
 		server.poll([&](Connection *c, Connection::Event evt){
 			if (evt == Connection::OnOpen) {
 
@@ -49,25 +49,29 @@ int main(int argc, char **argv) {
 					std::cout << c << ": Got hello." << std::endl;
 				} else if (c->recv_buffer[0] == 't') {
 					if (c->recv_buffer.size() < 1 + sizeof(Tank)) {
-						std::cout << "waiting for t..." << std::endl;
 						return; //wait for more data
 					}
 
 					Tank *dest;
 
 					bool first = true;
-					for(auto cur_c : server.connections) {
-						if(cur_c.socket == c->socket) {
+					for(auto connection = server.connections.begin(); connection != server.connections.end(); ++connection) {
+						if(connection->socket == c->socket) {
+							std::vector< char >& buf = connection->recv_buffer;
+
 							dest = first ? &state.host : &state.other;
-							memcpy(dest, c->recv_buffer.data() + 1, sizeof(Tank));
+							memcpy(dest, ((char*)(buf.data())) + 1, sizeof(Tank));
+							buf.erase(buf.begin(), buf.begin() + 1 + sizeof(Tank));
+
 							dest->owner = first ? HOST_PLAYER : OTHER_PLAYER;
+							std::cout << "tank: pos " << (float)(dest->pos.x) << ", " << (float)(dest->pos.y) << ", " << dest->pos.z << " look " << dest->look.x << ", " << dest->look.y << std::endl;
 						}
 						first = false;
 					}
-
-					//TODO: Processing before it is blasted back?
 				}
 			}
 		}, 0.01);
+
+
 	}
 }
